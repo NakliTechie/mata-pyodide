@@ -77,3 +77,26 @@ test('draws a graph as SVG', async () => {
   assert.equal(out.graphs.length, 1);
   assert.match(out.graphs[0], /^<\?xml[\s\S]*<svg[\s\S]*Squares/);
 });
+
+test('expand works on 32-bit WebAssembly', async () => {
+  const s = await createSession(py);
+  await s.stata('clear\nset obs 3\ngen k = _n');
+  const out = await s.stata('expand k\ncount');
+  assert.equal(out.error, null, out.log);
+  assert.match(out.log, /^\s*6$/m);
+});
+
+test('keeps tsset and labels across requests from a host', async () => {
+  const base = {
+    kind: 'command',
+    nobs: 5,
+    vars: [['t', 'num', 'DOUBLE'], ['y', 'num', 'DOUBLE']],
+    columns: [new Float64Array([1, 2, 3, 4, 5]), new Float64Array([2, 4, 6, 8, 10])],
+  };
+  const a = await runRequest(py, { ...base, reset: true, code: 'tsset t\nlabel variable y "Output"' });
+  assert.equal(a.error, null, a.log);
+  const b = await runRequest(py, { ...base, code: 'gen dy = D.y\ndescribe y' });
+  assert.equal(b.error, null, b.log);
+  assert.deepEqual(b.data.columns.find((c) => c.name === 'dy').values, [null, 2, 2, 2, 2]);
+  assert.match(b.log, /Output/);
+});

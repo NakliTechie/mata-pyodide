@@ -29,6 +29,22 @@ if not getattr(np.linalg, "_mata_pyodide_shim", False):
         setattr(np.linalg, _n, _wrap(getattr(np.linalg, _n)))
     np.linalg._mata_pyodide_shim = True
 
+# Pyodide is 32-bit, so NumPy's index type (intp) is int32, and np.repeat refuses
+# int64 repeat counts under its 'safe' casting rule. OpenDTA builds counts as
+# int64 (expand, contract, fillin), so narrow them here; counts above 2**31 are
+# out of range for a 32-bit array anyway.
+if np.dtype(np.intp).itemsize < 8 and not getattr(np, "_opendta_repeat_shim", False):
+    _np_repeat = np.repeat
+
+    def _repeat(a, repeats, axis=None):
+        r = np.asarray(repeats)
+        if r.dtype.kind in "iu" and r.dtype.itemsize > np.dtype(np.intp).itemsize:
+            repeats = r.astype(np.intp)
+        return _np_repeat(a, repeats, axis=axis)
+
+    np.repeat = _repeat
+    np._opendta_repeat_shim = True
+
 from opendta.core import formats as _formats
 from opendta.core.dataset import Dataset, Variable, str_type_for
 from opendta.core.errors import StataError
@@ -363,6 +379,37 @@ def _ematrix(s):
             "V": [[float(x) for x in row] for row in np.asarray(V.data)]}
 
 
+def _carry(prev, ds):
+    """Keep what the host does not hold from the engine's previous dataset:
+    variable and value labels, notes, formats, characteristics (where OpenDTA
+    keeps tsset, xtset, stset, svyset and mi settings) and the sort order."""
+    import copy
+    if prev is None or not prev.vars:
+        return
+    old = {v.name: v for v in prev.vars}
+    names = set()
+    for v in ds.vars:
+        names.add(v.name)
+        o = old.get(v.name)
+        if o is None or o.is_string != v.is_string:
+            continue
+        v.label, v.value_label, v.notes = o.label, o.value_label, list(o.notes)
+        if not v.fmt.startswith("%t"):
+            v.fmt = o.fmt
+    ds.label, ds.notes = prev.label, list(prev.notes)
+    ds.value_labels = copy.deepcopy(prev.value_labels)
+    ds.chars = {k: dict(c) for k, c in prev.chars.items() if k == "_dta" or k in names}
+    same = ds.nobs == prev.nobs and all(
+        k in old and k in names and (
+            list(old[k].data) == list(ds.get(k).data) if old[k].is_string
+            else np.array_equal(np.asarray(old[k].data), np.asarray(ds.get(k).data))
+        )
+        for k in prev.sortlist
+    )
+    if same:
+        ds.sortlist = list(prev.sortlist)
+
+
 def run_command(meta, columns):
     """Run Stata command lines on OpenDTA's Session, starting from the host's state."""
     global _engine, LINESIZE
@@ -385,6 +432,7 @@ def run_command(meta, columns):
         # The host hands e() back as plain values. When they are what this engine
         # returned last time, keep the engine's own e() (matrices included) and its
         # estimation sample, so postestimation (margins, predict, test) still works.
+        _carry(prev_data, s.data)
         if not meta.get("reset") and prev_e and _plain(prev_e) == _plain(s.e):
             s.e = prev_e
             s.e_before = dict(prev_e)
