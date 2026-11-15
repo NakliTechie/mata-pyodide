@@ -1,0 +1,22 @@
+{
+  "name": "mata-pyodide",
+  "version": "0.1.0",
+  "description": "Run Stata's Mata matrix language in the browser or Node on Pyodide, using OpenDTA's open-source Mata interpreter.",
+  "type": "module",
+  "main": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.mjs" },
+    "./opendta-mata.json": "./opendta-mata.json",
+    "./mata_bridge.py": "./mata_bridge.py"
+  },
+  "files": ["index.mjs", "index.d.ts", "opendta-mata.json", "mata_bridge.py", "scripts/", "LICENSE", "LICENSE-OpenDTA"],
+  "scripts": { "test": "node --experimental-wasm-jspi --test test/*.test.mjs" },
+  "peerDependencies": { "pyodide": ">=0.27.0 <0.28.0" },
+  "devDependencies": { "pyodide": "0.27.7" },
+  "keywords": ["stata", "mata", "pyodide", "webassembly", "statistics", "econometrics", "opendta"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/NakliTechie/mata-pyodide.git" },
+  "homepage": "https://github.com/NakliTechie/mata-pyodide#readme",
+  "engines": { "node": ">=22" }
+}
