@@ -105,11 +105,12 @@ export async function runRequest(pyodide, request) {
 /**
  * A session with no host dataset: `stata(lines)` runs Stata commands on
  * OpenDTA's own dataset, which persists between calls; `mata(code)` runs a
- * Mata block with its own functions and variables. `reset()` starts both over.
+ * Mata block. Matrices are shared between the two. `reset()` starts both over.
  */
 export async function createSession(pyodide, options) {
   await installOpenDTA(pyodide, options);
-  let fresh = { command: true, block: true };
+  // One reset for both: commands and Mata share matrices, so neither may clear the other.
+  let fresh = true;
   return {
     async stata(code, request = {}) {
       const out = await runRequest(pyodide, {
@@ -117,19 +118,19 @@ export async function createSession(pyodide, options) {
         ...request,
         kind: 'command',
         code,
-        reset: fresh.command,
+        reset: fresh,
         keepData: true,
       });
-      fresh.command = false;
+      fresh = false;
       return out;
     },
     async mata(code, request = {}) {
-      const out = await runRequest(pyodide, { ...request, kind: 'block', code, reset: fresh.block });
-      fresh.block = false;
+      const out = await runRequest(pyodide, { ...request, kind: 'block', code, reset: fresh });
+      fresh = false;
       return out;
     },
     reset() {
-      fresh = { command: true, block: true };
+      fresh = true;
     },
   };
 }

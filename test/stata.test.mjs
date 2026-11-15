@@ -100,3 +100,13 @@ test('keeps tsset and labels across requests from a host', async () => {
   assert.deepEqual(b.data.columns.find((c) => c.name === 'dy').values, [null, 2, 2, 2, 2]);
   assert.match(b.log, /Output/);
 });
+
+test('matrices made by commands and by Mata are shared', async () => {
+  const a = await runRequest(py, { kind: 'command', reset: true, code: 'matrix M = (1,2\\3,4)' });
+  assert.equal(a.error, null, a.log);
+  const b = await runRequest(py, { kind: 'block', code: 'X = st_matrix("M")\nst_matrix("N", X :* 10)' });
+  assert.equal(b.error, null, b.log);
+  const c = await runRequest(py, { kind: 'command', code: 'matrix list N' });
+  assert.equal(c.error, null, c.log);
+  assert.match(c.log, /r2\s+30\s+40/);
+});

@@ -92,7 +92,7 @@ class _Session:
         self.output.linesize = lambda: LINESIZE
         self.macros = MacroStore()
         self.scalars = {}
-        self.matrices = {}
+        self.matrices = _MATRICES
         self.r = {}
         self.e = {}
         self.sret = {}
@@ -157,11 +157,18 @@ class _Session:
 
 
 _session = None
+_engine = None
+# Stata matrices, shared by the Mata session and the command session, so a
+# matrix made by one (matrix M = ..., st_matrix("M", X)) is visible to the other.
+_MATRICES = {}
 
 
 def reset():
-    global _session
+    """Start over: a new Mata session, no command session yet, no matrices."""
+    global _session, _engine
+    _MATRICES.clear()
     _session = _Session()
+    _engine = None
 
 
 def _variables(specs, columns):
@@ -344,9 +351,6 @@ def run(meta, columns, host=None, evaluate=None):
 
 # -- Stata commands on OpenDTA's own Session ----------------------------------
 
-_engine = None
-
-
 def _new_engine():
     import os
     os.environ.setdefault("MPLBACKEND", "agg")
@@ -359,6 +363,7 @@ def _new_engine():
     e.graphs = []
     e.output.add_listener(lambda text, style: e.log.append(text))
     e.ui_hooks["graph"] = lambda g: e.graphs.append(_svg(g))
+    e.matrices = _MATRICES
     return e
 
 
@@ -413,7 +418,9 @@ def _carry(prev, ds):
 def run_command(meta, columns):
     """Run Stata command lines on OpenDTA's Session, starting from the host's state."""
     global _engine, LINESIZE
-    if _engine is None or meta.get("reset"):
+    if _session is None or meta.get("reset"):
+        reset()
+    if _engine is None:
         _engine = _new_engine()
     s = _engine
     LINESIZE = int(meta.get("linesize", 80))
