@@ -16,8 +16,8 @@ OpenDTA's open-source engine, packaged for Pyodide, with a bridge to your own da
 | Where | How |
 |---|---|
 | npm | `npm install opendta-pyodide pyodide@0.27.7` |
-| CDN | `import { createSession } from 'https://cdn.jsdelivr.net/npm/opendta-pyodide@0.2.0/index.mjs'` |
-| GitHub tag | `https://cdn.jsdelivr.net/gh/NakliTechie/opendta-pyodide@v0.2.0/index.mjs` |
+| CDN | `import { createSession } from 'https://cdn.jsdelivr.net/npm/opendta-pyodide@0.2.1/index.mjs'` |
+| GitHub tag | `https://cdn.jsdelivr.net/gh/NakliTechie/opendta-pyodide@v0.2.1/index.mjs` |
 
 ```js
 import { loadPyodide } from 'pyodide';

@@ -378,9 +378,19 @@ def run_command(meta, columns):
         s.r_before, s.e_before = dict(s.r), dict(s.e)
     else:
         globals_before = dict(s.macros.globals)
+        prev_data, prev_e = s.data, s.e
         _load(meta, columns, s)
         for k, v in globals_before.items():
             s.macros.globals.setdefault(k, v)
+        # The host hands e() back as plain values. When they are what this engine
+        # returned last time, keep the engine's own e() (matrices included) and its
+        # estimation sample, so postestimation (margins, predict, test) still works.
+        if not meta.get("reset") and prev_e and _plain(prev_e) == _plain(s.e):
+            s.e = prev_e
+            s.e_before = dict(prev_e)
+            es = getattr(prev_data, "esample", None)
+            if es is not None and len(es) == s.data.nobs:
+                s.data.esample = es.copy()
     s.log = []
     s.graphs = []
     error = None

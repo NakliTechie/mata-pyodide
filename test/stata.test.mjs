@@ -48,6 +48,17 @@ test('returns e() results and e(b) after an estimation', async () => {
   assert.equal(out.e.N, 40);
   assert.deepEqual(out.ematrix.names, ['x', '_cons']);
   assert.equal(out.ematrix.V.length, 2);
+  // The host sends e() back unchanged: postestimation still finds the model.
+  const next = await runRequest(py, {
+    kind: 'command',
+    nobs: 40,
+    vars: [['y', 'num', 'DOUBLE'], ['x', 'num', 'DOUBLE']],
+    columns: [y, x],
+    e: out.e,
+    code: 'margins, dydx(x)',
+  });
+  assert.equal(next.error, null, next.log);
+  assert.match(next.log, /Average marginal effects[\s\S]*Number of obs\s+=\s+40/);
 });
 
 test('reports a Stata error code for an unknown command', async () => {

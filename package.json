@@ -1,6 +1,6 @@
 {
   "name": "opendta-pyodide",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Run Stata 14 commands, graphs and Mata in the browser or Node on Pyodide, using OpenDTA's open-source engine.",
   "type": "module",
   "main": "./index.mjs",
