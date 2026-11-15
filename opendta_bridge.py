@@ -1,4 +1,4 @@
-"""mata-pyodide: a host bridge to OpenDTA's Mata interpreter in Pyodide.
+"""opendta-pyodide: a host bridge to OpenDTA (Stata 14 commands and Mata) in Pyodide.
 
 The host (for example a Stata do-file interpreter in JavaScript) owns the
 dataset, macros and scalars. For each mata block or mata: line it sends them here; this module runs
@@ -180,8 +180,8 @@ def _variables(specs, columns):
     return out
 
 
-def _export(before, nobs_before):
-    ds = _session.data
+def _export(before, nobs_before, sess=None):
+    ds = (sess or _session).data
     names_before = [b[0] for b in before]
     names_now = [v.name for v in ds.vars]
     full = ds.nobs != nobs_before or any(n not in names_now for n in names_before) \
@@ -233,9 +233,9 @@ _SUBCOMMANDS = ("clear", "describe", "d", "drop", "set", "mlib", "mosave", "whic
                 "query", "rename")
 
 
-def _load(meta, columns):
+def _load(meta, columns, sess=None):
     """Dataset, macros, scalars, results and generator state from the host."""
-    s = _session
+    s = sess or _session
     ds = Dataset()
     ds.nobs = int(meta["nobs"])
     ds.vars.extend(_variables(meta["vars"], columns))
@@ -261,13 +261,13 @@ def _load(meta, columns):
     s.r_before, s.e_before = dict(s.r), dict(s.e)
 
 
-def _state():
-    """What Mata changed since the last load, plus macros, scalars and results."""
+def _state(sess=None):
+    """What changed since the last load, plus macros, scalars and results."""
     from opendta.core import rng as _rng
-    s = _session
-    changed = s.dirty or s.data.nobs != s.nobs_before
+    s = sess or _session
+    changed = s.dirty or s.data.nobs != s.nobs_before or getattr(s, "always_export", False)
     return {
-        "data": _export(s.before, s.nobs_before) if changed else None,
+        "data": _export(s.before, s.nobs_before, s) if changed else None,
         "locals": dict(s.macros.locals),
         "globals": dict(s.macros.globals),
         "scalars": _plain(s.scalars),
@@ -326,6 +326,82 @@ def run(meta, columns, host=None, evaluate=None):
     return out
 
 
+# -- Stata commands on OpenDTA's own Session ----------------------------------
+
+_engine = None
+
+
+def _new_engine():
+    import os
+    os.environ.setdefault("MPLBACKEND", "agg")
+    from opendta.session import Session
+    e = Session()
+    e.settings["hints"] = "off"
+    e.always_export = True
+    e.dirty = False
+    e.log = []
+    e.graphs = []
+    e.output.add_listener(lambda text, style: e.log.append(text))
+    e.ui_hooks["graph"] = lambda g: e.graphs.append(_svg(g))
+    return e
+
+
+def _svg(g):
+    import io
+    from opendta.graphics.render import export
+    buf = io.BytesIO()
+    export(g, buf, "svg")
+    return buf.getvalue().decode("utf-8")
+
+
+def _ematrix(s):
+    from opendta.commands.matrix import Matrix
+    b, V = s.e.get("b"), s.e.get("V")
+    if not isinstance(b, Matrix) or not isinstance(V, Matrix):
+        return None
+    return {"names": list(b.colnames), "b": [float(x) for x in np.asarray(b.data)[0]],
+            "V": [[float(x) for x in row] for row in np.asarray(V.data)]}
+
+
+def run_command(meta, columns):
+    """Run Stata command lines on OpenDTA's Session, starting from the host's state."""
+    global _engine, LINESIZE
+    if _engine is None or meta.get("reset"):
+        _engine = _new_engine()
+    s = _engine
+    LINESIZE = int(meta.get("linesize", 80))
+    s.settings["linesize"] = str(LINESIZE)
+    if meta.get("keepData"):
+        # No host dataset: the engine keeps its own data, macros and results.
+        s.before = [(v.name, v.is_string, v.data.copy()) for v in s.data.vars]
+        s.nobs_before = s.data.nobs
+        s.r_before, s.e_before = dict(s.r), dict(s.e)
+    else:
+        globals_before = dict(s.macros.globals)
+        _load(meta, columns, s)
+        for k, v in globals_before.items():
+            s.macros.globals.setdefault(k, v)
+    s.log = []
+    s.graphs = []
+    error = None
+    try:
+        s.interp.run_lines(split_commands(meta["code"]), echo=bool(meta.get("echo", False)))
+    except StataError as e:
+        s.report_error(e)
+        error = {"code": e.rc, "message": e.message}
+    except Exception as e:  # an engine fault becomes a Stata-style error
+        error = {"code": 3000, "message": "OpenDTA internal error: " + type(e).__name__ + ": " + str(e)}
+    out = _state(s)
+    out["ematrix"] = _ematrix(s)
+    out["graphs"] = list(s.graphs)
+    out["log"] = "".join(s.log)
+    out["error"] = error
+    return out
+
+
 def run_json(meta_json, columns, host=None, evaluate=None):
     cols = [c.to_py() if hasattr(c, "to_py") else c for c in columns]
-    return json.dumps(run(json.loads(meta_json), cols, host, evaluate))
+    meta = json.loads(meta_json)
+    if meta.get("kind") == "command":
+        return json.dumps(run_command(meta, cols))
+    return json.dumps(run(meta, cols, host, evaluate))

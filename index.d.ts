@@ -1,4 +1,4 @@
-// Types for mata-pyodide.
+// Types for opendta-pyodide.
 
 /** The slice of the Pyodide API this package uses (Pyodide 0.27). */
 export interface PyodideLike {
@@ -13,7 +13,7 @@ type Value = number | string | null;
 
 
 /** What the host holds, as Mata reads it. Every field is optional in a request. */
-export interface MataState {
+export interface HostState {
   nobs: number;
   /** [name, 'num' | 'str' | 'date', SQL type] per variable, in dataset order. The SQL type sets
    *  Stata's storage type: TINYINT byte, SMALLINT int, INTEGER long, FLOAT float, else double. */
@@ -33,17 +33,21 @@ export interface MataState {
 
 /**
  * Reply to a `stata()` call from Mata: the host's full state after the command
- * (every MataState field except columns, plus `log: string[]` and
+ * (every HostState field except columns, plus `log: string[]` and
  * `error: {code, message} | null`) as JSON, and the columns separately.
  */
-export interface MataStataReply {
+export interface StataReply {
   json: string;
   columns: Array<Float64Array | string[]>;
 }
 
-export interface MataRequest extends Partial<MataState> {
-  /** A `mata` block, a `mata:` line, or a Stata `matrix` command (run by OpenDTA's matrix code). */
-  kind?: 'block' | 'line' | 'matrix';
+export interface OpenDTARequest extends Partial<HostState> {
+  /** Stata command lines, a `mata` block, a `mata:` line, or a Stata `matrix` command. */
+  kind?: 'command' | 'block' | 'line' | 'matrix';
+  /** For `command`: echo each line as `. cmd` in the log, as a do-file does. Default false. */
+  echo?: boolean;
+  /** For `command`: ignore the host fields and keep OpenDTA's own dataset and results. */
+  keepData?: boolean;
   /** Block body (the lines between `mata` and `end`), one statement, or a matrix command without the word `matrix`. */
   code: string;
   /** `mata:` stops at the first error; `mata` reports it and carries on. Default false. */
@@ -52,13 +56,13 @@ export interface MataRequest extends Partial<MataState> {
   reset?: boolean;
   /** `set linesize`: Mata wraps matrices and rules at this width. Default 80. */
   linesize?: number;
-  /** Runs `stata("cmd")`: receives Mata's changes as JSON (MataChanges plus `cmd`). Needs JSPI. */
-  stata?: (stateJson: string) => Promise<MataStataReply>;
+  /** Runs `stata("cmd")`: receives Mata's changes as JSON (StateChanges plus `cmd`). Needs JSPI. */
+  stata?: (stateJson: string) => Promise<StataReply>;
   /** Evaluates a Stata scalar expression for `matrix`; returns JSON `{"value": number | string | null}` or `{"error": {code, message}}`. Needs JSPI. */
   evaluate?: (expr: string) => Promise<string>;
 }
 
-export interface MataColumn {
+export interface HostColumn {
   name: string;
   kind: 'num' | 'str' | 'date';
   integer?: boolean;
@@ -66,8 +70,8 @@ export interface MataColumn {
 }
 
 /** What Mata changed. `data` is null when the dataset is unchanged. */
-export interface MataChanges {
-  data: { full: boolean; nobs: number; order: string[]; columns: MataColumn[] } | null;
+export interface StateChanges {
+  data: { full: boolean; nobs: number; order: string[]; columns: HostColumn[] } | null;
   locals: Record<string, string>;
   globals: Record<string, string>;
   scalars: Record<string, Value>;
@@ -77,13 +81,17 @@ export interface MataChanges {
   rng: string;
 }
 
-export interface MataResponse extends MataChanges {
+export interface OpenDTAResponse extends StateChanges {
   log: string;
   error: { code: number; message: string } | null;
+  /** For `command`: e(b) and e(V) after an estimation, else null. */
+  ematrix?: { names: string[]; b: number[]; V: number[][] } | null;
+  /** For `command`: each graph drawn, as SVG text. */
+  graphs?: string[];
 }
 
-/** The parsed opendta-mata.json. */
-export interface MataBundle {
+/** The parsed opendta.json. */
+export interface OpenDTABundle {
   source: string;
   commit: string;
   licence: string;
@@ -92,15 +100,20 @@ export interface MataBundle {
 }
 
 export interface InstallOptions {
-  /** URL of opendta-mata.json (relative to this module), or the parsed bundle. */
-  bundle?: string | URL | MataBundle;
-  /** URL of mata_bridge.py (relative to this module). */
+  /** URL of opendta.json (relative to this module), or the parsed bundle. */
+  bundle?: string | URL | OpenDTABundle;
+  /** URL of opendta_bridge.py (relative to this module). */
   bridge?: string | URL;
 }
 
-export function installMata(pyodide: PyodideLike, options?: InstallOptions): Promise<{ source: string; commit: string }>;
-export function runMata(pyodide: PyodideLike, request: MataRequest): Promise<MataResponse>;
-export function createMata(
+export function installOpenDTA(pyodide: PyodideLike, options?: InstallOptions): Promise<{ source: string; commit: string }>;
+export function runRequest(pyodide: PyodideLike, request: OpenDTARequest): Promise<OpenDTAResponse>;
+export function drawsGraph(code: string): boolean;
+export function createSession(
   pyodide: PyodideLike,
   options?: InstallOptions,
-): Promise<{ run(code: string, request?: MataRequest): Promise<MataResponse>; reset(): void }>;
+): Promise<{
+  stata(code: string, request?: OpenDTARequest): Promise<OpenDTAResponse>;
+  mata(code: string, request?: OpenDTARequest): Promise<OpenDTAResponse>;
+  reset(): void;
+}>;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { loadPyodide } from 'pyodide';
-import { createMata, runMata } from '../index.mjs';
+import { createSession, runRequest } from '../index.mjs';
 
 let py;
 before(async () => {
@@ -9,7 +9,8 @@ before(async () => {
 });
 
 test('runs a Mata block and prints matrices as Stata does', async () => {
-  const m = await createMata(py);
+  const s = await createSession(py);
+  const m = { run: (c) => s.mata(c), reset: () => s.reset() };
   const out = await m.run('A = (4,2\\2,3)\ncholesky(A)');
   assert.equal(out.error, null);
   assert.match(out.log, /mata \(type end to exit\)/);
@@ -17,7 +18,8 @@ test('runs a Mata block and prints matrices as Stata does', async () => {
 });
 
 test('keeps functions between runs until reset', async () => {
-  const m = await createMata(py);
+  const s = await createSession(py);
+  const m = { run: (c) => s.mata(c), reset: () => s.reset() };
   await m.run('real scalar sq(real scalar x)\n{\n  return(x*x)\n}');
   assert.match((await m.run('sq(7)')).log, /\b49\b/);
   m.reset();
@@ -26,14 +28,15 @@ test('keeps functions between runs until reset', async () => {
 });
 
 test('a singular matrix gives a missing inverse, as in Stata', async () => {
-  const m = await createMata(py);
+  const s = await createSession(py);
+  const m = { run: (c) => s.mata(c), reset: () => s.reset() };
   const out = await m.run('cholesky((1,2\\2,4))');
   assert.equal(out.error, null);
   assert.match(out.log, /\|\s+\.\s+\.\s+\|/);
 });
 
 test('reads and changes the host dataset, macros and scalars', async () => {
-  const out = await runMata(py, {
+  const out = await runRequest(py, {
     reset: true,
     nobs: 3,
     vars: [['x', 'num', 'DOUBLE'], ['s', 'str', 'VARCHAR']],
@@ -55,7 +58,8 @@ test('reads and changes the host dataset, macros and scalars', async () => {
 });
 
 test('continues the Stata 14 random stream from a saved state', async () => {
-  const m = await createMata(py);
+  const s = await createSession(py);
+  const m = { run: (c) => s.mata(c), reset: () => s.reset() };
   const out = await m.run('rseed(123)\nprintf("%20.17f\\n", runiform(1,1))');
   assert.match(out.log, /0\.31320017867847072/);
   assert.match(out.rng, /^X[0-9a-f]+$/);
@@ -63,7 +67,7 @@ test('continues the Stata 14 random stream from a saved state', async () => {
 
 test('stata() calls back into the host', async () => {
   const calls = [];
-  const out = await runMata(py, {
+  const out = await runRequest(py, {
     reset: true,
     code: 'stata("display 1+1")',
     stata: async (state) => {
@@ -79,8 +83,8 @@ test('stata() calls back into the host', async () => {
 });
 
 test('runs a Stata matrix command', async () => {
-  const out = await runMata(py, { reset: true, kind: 'matrix', code: 'A = (1,2\\3,4)' });
+  const out = await runRequest(py, { reset: true, kind: 'matrix', code: 'A = (1,2\\3,4)' });
   assert.equal(out.error, null, out.log);
-  const list = await runMata(py, { kind: 'matrix', code: 'list A' });
+  const list = await runRequest(py, { kind: 'matrix', code: 'list A' });
   assert.match(list.log, /A\[2,2\]/);
 });
